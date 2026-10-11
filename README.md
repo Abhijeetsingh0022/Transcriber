@@ -1,3 +1,14 @@
+---
+title: TMUX Transcriber
+emoji: 🎙️
+colorFrom: cyan
+colorTo: blue
+sdk: gradio
+sdk_version: 5.20.0
+app_file: app.py
+pinned: false
+---
+
 # Transcriber
 
 > **High-Accuracy Local AI Transcription, Speaker Diarization & Audio Workstation**  
