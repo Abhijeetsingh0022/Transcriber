@@ -1,0 +1,182 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+/* ─── Theme Tokens (Tailwind v4 @theme) ─────────────────────── */
+@theme {
+  /* Brand — blue secondary */
+  --color-brand-50:   #eff6ff;
+  --color-brand-100:  #dbeafe;
+  --color-brand-200:  #bfdbfe;
+  --color-brand-400:  #60a5fa;
+  --color-brand-500:  #3b82f6;
+  --color-brand-600:  #2563eb;
+  --color-brand-700:  #1d4ed8;
+  --color-brand-900:  #1e3a8a;
+
+  /* Off-white background */
+  --color-canvas:     #f9fafb;
+  --color-canvas-2:   #f3f4f6;
+
+  /* Font */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ─── Base ───────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─── Animations ─────────────────────────────────────────────── */
+@layer utilities {
+  @keyframes popoverIn {
+    from { opacity: 0; transform: scale(0.97) translateY(-6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.94); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  @keyframes shimmerSweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.85; }
+  }
+  @keyframes soundwave1 {
+    0%, 100% { height: 3px; }
+    50%       { height: 12px; }
+  }
+  @keyframes soundwave2 {
+    0%, 100% { height: 11px; }
+    50%       { height: 4px; }
+  }
+  @keyframes soundwave3 {
+    0%, 100% { height: 5px; }
+    50%       { height: 13px; }
+  }
+  @keyframes radarPulse {
+    0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+    70%  { transform: scale(1);    box-shadow: 0 0 0 7px rgba(59, 130, 246, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  }
+  @keyframes floatSlow {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-3px); }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-popover       { animation: popoverIn   0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .animate-fade-slide    { animation: fadeSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .animate-scale         { animation: scaleIn     0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .animate-shimmer       { animation: shimmer       1.8s infinite; }
+  .animate-shimmer-sweep { animation: shimmerSweep  2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+  .animate-wave-1        { animation: soundwave1    0.85s ease-in-out infinite; }
+  .animate-wave-2        { animation: soundwave2    0.7s  ease-in-out infinite; }
+  .animate-wave-3        { animation: soundwave3    0.95s ease-in-out infinite; }
+  .animate-radar         { animation: radarPulse    1.8s  infinite; }
+  .animate-float         { animation: floatSlow     3.5s  ease-in-out infinite; }
+  .animate-slide-up      { animation: slideUp       0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+  /* Blue glow for active progress */
+  .progress-glow {
+    box-shadow: 0 0 12px -1px rgba(59, 130, 246, 0.4);
+  }
+
+  /* Floating glass nav — white primary surface */
+  .liquid-glass-dock {
+    background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.65) 100%);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.90);
+    box-shadow:
+      inset 0 1px 1px rgba(255,255,255,0.95),
+      0 4px 16px rgba(15,23,42,0.06),
+      0 1px 4px rgba(15,23,42,0.04);
+  }
+
+  .liquid-glass-dock-scrolled {
+    background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.80) 100%);
+    backdrop-filter: blur(32px) saturate(200%);
+    -webkit-backdrop-filter: blur(32px) saturate(200%);
+    border: 1px solid rgba(255,255,255,0.98);
+    box-shadow:
+      inset 0 1.5px 1.5px rgba(255,255,255,1),
+      0 8px 32px rgba(15,23,42,0.10),
+      0 2px 8px rgba(15,23,42,0.06);
+  }
+}
+
+/* ─── Print ──────────────────────────────────────────────────── */
+@media print {
+  @page { size: landscape; margin: 10mm; }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    height: auto !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .fixed.inset-0,
+  div[class*="fixed inset-0"],
+  div[class*="overflow-hidden"],
+  div[class*="overflow-y-auto"] {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  header, nav, aside, footer,
+  .studio-header, .workstation-dock, .studio-inspector,
+  .find-replace-bar, .actions-bar, .no-print,
+  [data-no-print="true"], button, input {
+    display: none !important;
+  }
+
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  .print-full-width {
+    width: 100% !important; max-width: 100% !important;
+    margin: 0 !important; padding: 0 !important;
+    box-shadow: none !important; border: none !important;
+  }
+
+  table { page-break-inside: auto; width: 100% !important; }
+  tr    { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+}

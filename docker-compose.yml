@@ -1,0 +1,32 @@
+services:
+  transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transcriber-app
+    restart: unless-stopped
+    ports:
+      - "8000:7860"
+    volumes:
+      # Persistent SQLite database, uploaded media, and transcripts
+      - transcriber-data:/app/backend/data
+      # Persistent HuggingFace model cache (Whisper weights)
+      - transcriber-models:/home/user/.cache/huggingface
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=7860
+      - RELOAD=false
+    # Optional GPU acceleration for NVIDIA hosts (uncomment if deploying on a GPU instance)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  transcriber-data:
+    driver: local
+  transcriber-models:
+    driver: local
