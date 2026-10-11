@@ -772,10 +772,11 @@ def generate_topic_flow_markdown(
             txt = turns[0]["text"].replace("|", "\\|").replace("\n", " ")
             lines.append(f"| {no} | **{sec}** | `{tc}` | {dur} | {spk} | {txt} |")
         else:
-            formatted_dialogue = "<br>".join([
-                f"**{t['speaker']}:** {t['text'].replace('|', '\\|')}"
-                for t in turns
-            ])
+            turn_lines = []
+            for t in turns:
+                escaped_text = t["text"].replace("|", "\\|")
+                turn_lines.append(f"**{t['speaker']}:** {escaped_text}")
+            formatted_dialogue = "<br>".join(turn_lines)
             lines.append(f"| {no} | **{sec}** | `{tc}` | {dur} | Multiple | {formatted_dialogue} |")
 
     return "\n".join(lines)
