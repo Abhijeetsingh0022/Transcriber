@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 from contextlib import contextmanager
 
-# Data directory lives inside backend/
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Data directory lives inside backend/ or can be overridden via DATA_DIR env var
+_custom_data_dir = os.environ.get("DATA_DIR")
+DATA_DIR = Path(_custom_data_dir).resolve() if _custom_data_dir else Path(__file__).resolve().parent.parent / "data"
 DB_PATH = DATA_DIR / "transcriber.db"
 
 

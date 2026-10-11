@@ -22,7 +22,6 @@ backend/data/*.db*
 # Next.js & Frontend
 frontend/node_modules/
 frontend/.next/
-frontend/out/
 frontend/.turbo/
 .DS_Store
 
