@@ -69,12 +69,13 @@ DISCOURSE_SCHEMA = {
 def _build_discourse_prompt(segments: List[Dict[str, Any]]) -> str:
     """Builds a compact, structured transcript prompt for AI discourse analysis across any language."""
     transcript_lines = []
-    # Analyze up to 500 segments concisely formatted
+    # Analyze up to 500 segments concisely formatted with acoustic voice indicators if present
     for idx, seg in enumerate(segments[:500]):
         text = seg.get("text", "").strip()
         start = seg.get("start_time", 0.0)
         end = seg.get("end_time", 0.0)
-        transcript_lines.append(f"[{idx}] ({start:.1f}s - {end:.1f}s): {text}")
+        v_tag = f" [{seg['acoustic_cluster']}]" if seg.get("acoustic_cluster") else ""
+        transcript_lines.append(f"[{idx}] ({start:.1f}s - {end:.1f}s){v_tag}: {text}")
 
     return (
         "You are an expert dialogue and discourse analyst for video recordings across all languages.\n"
@@ -86,10 +87,12 @@ def _build_discourse_prompt(segments: List[Dict[str, Any]]) -> str:
         "   - Do NOT include 'Audience' or 'Viewers' as a character in 'characters' (use 'Audience' only for 'turns.addressed_to').\n"
         "2. For every segment index, determine exactly who is speaking ('speaker'), who they are addressing ('addressed_to'), and their conversational intent ('intent').\n"
         "Universal Rules:\n"
+        "- ACOUSTIC VOICE TAGS: When segments contain [Voice A], [Voice B], etc., these tags indicate physical acoustic voiceprints. Segments sharing the exact same voice tag are spoken by the same physical person. Use this acoustic voice continuity along with conversational vocatives to bind real names and roles to each voice.\n"
         "- CRITICAL SENTENCE CONTINUATION RULE: Speech transcribers split sentences across segment boundaries (e.g. mid-clause, after a comma, or conjunction). If segment [i] continues an unfinished sentence or clause from segment [i-1], it MUST have the EXACT SAME speaker and addressed_to as segment [i-1]. A single sentence NEVER changes speakers midway through.\n"
         "- CRITICAL NARRATOR INTRO RULE: The opening channel intro and topic announcement (e.g. 'Hello students, welcome to [Channel]. Today we will learn about [Topic] and how [Concepts] work.') belongs 100% to 'Narrator' addressed to 'Audience' with intent 'narration'. Do NOT attribute introductory explanations to 'Teacher' or in-scene characters before the interactive scene dialogue begins.\n"
         "- In-scene characters (e.g. Teacher, Student) only speak once the interactive dialogue begins in the scene (e.g. when a student asks 'Teacher, ...' or characters converse).\n"
         "- When Person A addresses Person B by name or honorific, speaker is Person A and addressed_to is Person B.\n"
+        "- SELF-ADDRESS & MUSING RULE: Never set addressed_to to the same person as speaker. If a character is thinking aloud, wondering ('Hmm...', 'Why did this happen?'), or reacting alone, set addressed_to to 'Self' or 'Audience', NEVER their own name.\n"
         "- When someone asks a question or expresses confusion, intent is 'inquiry'.\n"
         "- When someone teaches, explains a concept, or provides guidance, intent is 'explanation'.\n"
         "- When someone acknowledges or confirms understanding ('Yes', 'Understood', 'Right'), intent is 'confirmation'.\n"
@@ -152,6 +155,10 @@ def _parse_ai_character_response(
         spk = turn.get("speaker", "").strip()
         addr = turn.get("addressed_to", "").strip()
         intn = turn.get("intent", "statement").strip()
+
+        # Prevent self-address anomaly (e.g. Kunal addressing Kunal)
+        if spk.lower() == addr.lower():
+            addr = "Self"
 
         matched_lbl = name_to_label.get(spk.lower())
         if not matched_lbl:

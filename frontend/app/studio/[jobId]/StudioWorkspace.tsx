@@ -904,15 +904,12 @@ function StudioContent() {
         }
       }
 
-      const roleSummary = [
-        data.student_name ? `Student: ${data.student_name}` : null,
-        data.teacher_name ? `Teacher: ${data.teacher_name}` : null,
-        data.narrator_segments ? `Narrator: ${data.narrator_segments} segs` : null,
-      ]
-        .filter(Boolean)
-        .join(" | ");
+      const roleSummary = data.summary
+        || (data.speakers?.length
+          ? data.speakers.map((s: any) => `${s.display_name}${s.role && s.role.toLowerCase() !== s.display_name.toLowerCase() ? ` (${s.role})` : ""}`).join(" • ")
+          : (data.primary_name ? `Speakers: ${data.primary_name}${data.secondary_name ? ` • ${data.secondary_name}` : ""}` : "Auto-identification complete"));
 
-      setSaveStatus(roleSummary ? `Identified: ${roleSummary}` : "Auto-identification complete");
+      setSaveStatus(`Identified: ${roleSummary}`);
       setTimeout(() => setSaveStatus("All changes saved"), 3500);
     } catch (err) {
       console.error(err);

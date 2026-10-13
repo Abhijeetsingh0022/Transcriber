@@ -244,10 +244,18 @@ class QueueWorker(threading.Thread):
         update_job_progress(job_id, 92.0, "Identifying speakers & roles...")
         broadcast_job_progress(job_id, 92.0, "Identifying speakers & roles...", status="diarizing")
 
+        num_spk = job.get("num_speakers") or 3
+
+        # Run fast acoustic voice clustering on the extracted 16kHz audio
+        try:
+            from engine.diarizer import tag_segments_with_acoustic_clusters
+            tag_segments_with_acoustic_clusters(temp_wav_path, segments, num_speakers=num_spk)
+        except Exception as e:
+            print(f"Warning: Acoustic voice clustering skipped ({e}).")
+
         from engine.speaker_id import identify_speakers_for_segments
         from services.settings_service import get_raw_gemini_key, get_raw_openrouter_key
 
-        num_spk = job.get("num_speakers") or 3
         g_key = get_raw_gemini_key()
         o_key = get_raw_openrouter_key()
         try:

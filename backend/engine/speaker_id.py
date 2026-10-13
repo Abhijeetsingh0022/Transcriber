@@ -281,10 +281,19 @@ def identify_speakers_for_segments(
                 spks = ai_res.get("speakers", [])
                 s0 = spks[0]["display_name"] if len(spks) > 0 else "Speaker 1"
                 s1 = spks[1]["display_name"] if len(spks) > 1 else "Speaker 2"
-                ai_res["student_name"] = s0
-                ai_res["teacher_name"] = s1
-                ai_res["primary_name"] = s0
-                ai_res["secondary_name"] = s1
+
+                # Dynamic role resolution (avoid hardcoding Narrator as student!)
+                teacher_spk = next((s for s in spks if "teacher" in s.get("role", "").lower() or "teacher" in s.get("display_name", "").lower()), None)
+                student_spk = next((s for s in spks if "student" in s.get("role", "").lower() or ("narrator" not in s.get("display_name", "").lower() and s != teacher_spk)), None)
+
+                ai_res["student_name"] = student_spk["display_name"] if student_spk else s0
+                ai_res["teacher_name"] = teacher_spk["display_name"] if teacher_spk else s1
+                ai_res["primary_name"] = student_spk["display_name"] if student_spk else s0
+                ai_res["secondary_name"] = teacher_spk["display_name"] if teacher_spk else s1
+                ai_res["summary"] = " • ".join(
+                    f"{s['display_name']} ({s['role']})" if s.get('role') and s['role'].lower() != s['display_name'].lower() else s['display_name']
+                    for s in spks
+                )
                 ai_res["total_segments"] = len(segments)
                 ai_res["narrator_count"] = sum(
                     1 for v in ai_res.get("addressee_assignments", {}).values() if v == "Audience"
@@ -455,10 +464,16 @@ def identify_speakers_for_segments(
     used_labels = set(assignments.values())
     speakers = [s for s in speakers if s["speaker_label"] in used_labels]
 
+    summary_str = " • ".join(
+        f"{s['display_name']} ({s['role']})" if s.get('role') and s['role'].lower() != s['display_name'].lower() else s['display_name']
+        for s in speakers
+    )
+
     return {
         "success": True,
         "tier": "tier1_local",
         "speakers": speakers,
+        "summary": summary_str,
         "segment_assignments": assignments,
         "addressee_assignments": addressees,
         "intent_assignments": intents,
@@ -518,7 +533,22 @@ def smart_identify_and_save_job(
             except Exception:
                 pass
 
-        # 3. Run universal identification
+        # 3. Acoustic Voice Clustering (if media audio file is accessible)
+        try:
+            from engine.diarizer import tag_segments_with_acoustic_clusters
+            from db.database import DATA_DIR
+            job_audio_path = DATA_DIR / "media" / job_id / "audio_16k.wav"
+            if not job_audio_path.exists():
+                cursor.execute("SELECT filepath FROM jobs WHERE id = ?", (job_id,))
+                row_job = cursor.fetchone()
+                if row_job and row_job["filepath"] and Path(row_job["filepath"]).exists():
+                    job_audio_path = Path(row_job["filepath"])
+            if job_audio_path.exists():
+                tag_segments_with_acoustic_clusters(str(job_audio_path), segments, num_speakers=3)
+        except Exception:
+            pass
+
+        # 4. Run universal identification
         res = identify_speakers_for_segments(
             segments,
             num_speakers=3,
@@ -531,7 +561,7 @@ def smart_identify_and_save_job(
         addressees = res.get("addressee_assignments", {})
         intents = res.get("intent_assignments", {})
 
-        # 4. Persist updated speakers in batch
+        # 5. Persist updated speakers in batch
         cursor.execute("DELETE FROM speakers WHERE job_id = ?", (job_id,))
         spk_data = [
             (
@@ -552,7 +582,7 @@ def smart_identify_and_save_job(
                 spk_data
             )
 
-        # 5. Batch update segment assignments, addressees, intents, and word records
+        # 6. Batch update segment assignments, addressees, intents, and word records
         seg_updates = []
         word_updates = []
         for idx, seg in enumerate(segments):
@@ -579,7 +609,7 @@ def smart_identify_and_save_job(
             word_updates
         )
 
-        # 6. Update parent transcript timestamp
+        # 7. Update parent transcript timestamp
         cursor.execute(
             "UPDATE transcripts SET updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
             (job_id,)
@@ -590,6 +620,7 @@ def smart_identify_and_save_job(
         "job_id": job_id,
         "tier": res.get("tier", "tier1_local"),
         "speakers": speakers,
+        "summary": res.get("summary"),
         "student_name": res.get("student_name"),
         "teacher_name": res.get("teacher_name"),
         "primary_name": res.get("primary_name"),

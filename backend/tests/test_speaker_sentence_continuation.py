@@ -117,3 +117,44 @@ def test_extract_vocatives_pedagogical_praise():
     data = extract_vocatives_and_mentions(segments)
     assert "Kunal" in data["names"]
     assert "Teacher" in data["honorifics"]
+
+
+def test_acoustic_diarization_clustering():
+    """Verifies that acoustic MFCC clustering accurately tags segments with distinct voice tracks."""
+    import torch
+    from engine.diarizer import tag_segments_with_acoustic_clusters
+
+    sr = 16000
+    t = torch.linspace(0, 10, sr * 10)
+    # Two distinct synthetic voice frequencies
+    v1 = torch.sin(2 * 3.14159 * 180 * t).unsqueeze(0)
+    v2 = torch.sin(2 * 3.14159 * 550 * t).unsqueeze(0)
+    audio = torch.cat([v1, v2], dim=1)
+
+    segments = [
+        {"start_time": 0.0, "end_time": 4.5, "text": "Hello students."},
+        {"start_time": 5.0, "end_time": 9.5, "text": "Today we learn circuits."},
+        {"start_time": 10.5, "end_time": 14.5, "text": "Teacher, how does this work?"},
+        {"start_time": 15.0, "end_time": 19.5, "text": "Why is the bulb off?"},
+    ]
+
+    tagged = tag_segments_with_acoustic_clusters(audio, segments, num_speakers=2)
+    assert tagged[0]["acoustic_cluster"] == tagged[1]["acoustic_cluster"]
+    assert tagged[2]["acoustic_cluster"] == tagged[3]["acoustic_cluster"]
+    assert tagged[0]["acoustic_cluster"] != tagged[2]["acoustic_cluster"]
+
+
+def test_self_address_normalization():
+    """Verifies that internal monologue or musing normalizes addressed_to from speaker's own name to 'Self'."""
+    from engine.gemini_speaker_id import _parse_ai_character_response
+
+    mock_result = {
+        "characters": [{"name": "Kunal", "role": "Student"}],
+        "turns": [
+            {"segment_index": 0, "speaker": "Kunal", "addressed_to": "Kunal", "intent": "inquiry"}
+        ]
+    }
+    segments = [{"start_time": 0.0, "end_time": 2.0, "text": "Hmm. Why did this bulb stop?"}]
+    parsed = _parse_ai_character_response(mock_result, segments, "test")
+    assert parsed["addressee_assignments"][0] == "Self"
+
