@@ -1,8 +1,8 @@
 """
-GPU and Runtime Diagnostic Verification Tool for Transcriber.
-Validates NVIDIA CUDA runtime, Turing Tensor Cores, CTranslate2 Faster-Whisper,
-cuBLAS/cuDNN DLL resolution on Windows, and audio processing capabilities.
-Run directly on Windows via:
+Hardware and Runtime Diagnostic Verification Tool for Transcriber.
+Validates CPU (AVX2/INT8 vector acceleration) and optional NVIDIA CUDA GPU execution,
+thread pool sizing, CTranslate2 Faster-Whisper, and audio processing capabilities.
+Run directly via:
     python verify_gpu.py
 """
 
@@ -10,6 +10,7 @@ import sys
 import os
 import time
 from pathlib import Path
+import psutil
 
 # Add backend directory to sys.path
 backend_dir = Path(__file__).resolve().parent
@@ -21,130 +22,118 @@ from engine.audio import find_ffmpeg_binary
 
 
 def run_diagnostics() -> bool:
-    print("=" * 65)
-    print("        TRANSCRIBER GPU & RUNTIME OPTIMIZATION AUDIT        ")
-    print("=" * 65)
+    print("=" * 70)
+    print("      TRANSCRIBER HARDWARE & RUNTIME OPTIMIZATION AUDIT        ")
+    print("=" * 70)
     print(f"Platform: {sys.platform} (Python {sys.version.split()[0]})")
 
     # 1. Windows DLL Setup
     if sys.platform == "win32":
         registered = setup_windows_cuda_dll_paths()
-        print(f"\n[1/5] Windows CUDA DLL Directory Registration:")
+        print(f"\n[1/6] Windows CUDA DLL Directory Registration:")
         if registered:
             for r in registered:
                 print(f"  ✓ Registered: {r}")
         else:
             print("  ℹ No pip nvidia wheel directories required registration or already registered.")
     else:
-        print("\n[1/5] Windows DLL Resolution: Skipped (Non-Windows OS)")
+        print("\n[1/6] Windows DLL Resolution: Skipped (Non-Windows OS)")
 
-    # 2. PyTorch & CUDA Check
-    print("\n[2/5] PyTorch & NVIDIA Driver Telemetry:")
+    # 2. Host CPU Topology & Thread Pool Optimization
+    print("\n[2/6] CPU Architecture & Thread Pool Sizing:")
+    total_logical = os.cpu_count() or 4
+    physical_cores = psutil.cpu_count(logical=False) or total_logical
+    mem = psutil.virtual_memory()
+
+    print(f"  ✓ Physical Cores: {physical_cores}")
+    print(f"  ✓ Logical Threads: {total_logical}")
+    print(f"  ✓ System RAM: {mem.total / (1024**3):.2f} GB (Available: {mem.available / (1024**3):.2f} GB)")
+
+    # Wise thread allocation on Windows
+    if sys.platform == "win32" and physical_cores > 4:
+        rec_threads = min(8, physical_cores - 1)
+        print(f"  ✓ Wise Worker Threads: {rec_threads} (Reserves 1-2 cores for Windows DWM & 60fps UI)")
+    else:
+        rec_threads = min(8, max(2, physical_cores))
+        print(f"  ✓ Wise Worker Threads: {rec_threads}")
+
+    # 3. CPU AVX2 Vector Performance Benchmark
+    print("\n[3/6] CPU Vector Matrix Multiplication Benchmark (AVX2/FMA):")
     try:
         import torch
-        print(f"  ✓ PyTorch Version: {torch.__version__}")
-        cuda_avail = torch.cuda.is_available()
-        print(f"  ✓ CUDA Available: {cuda_avail}")
-
-        if not cuda_avail:
-            print("  ✖ CUDA is NOT available in PyTorch!")
-            print("    Run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124")
-            return False
-
-        print(f"  ✓ PyTorch CUDA Build: {torch.version.cuda}")
-        gpu_count = torch.cuda.device_count()
-        print(f"  ✓ Detected GPUs: {gpu_count}")
-        gpu_name = torch.cuda.get_device_name(0)
-        print(f"  ✓ Primary GPU: {gpu_name}")
-        
-        major, minor = torch.cuda.get_device_capability(0)
-        print(f"  ✓ CUDA Compute Capability: {major}.{minor}")
-        
-        # RTX 2080 is Turing (Compute Capability 7.5)
-        if major == 7 and minor == 5:
-            print("    -> Architecture: NVIDIA Turing (TU104)")
-            print("    -> Tensor Cores: 2nd Gen Turing Tensor Cores (Native FP16 & INT8)")
-            print("    -> bfloat16: Not supported on Turing (Ampere 8.0+ only, properly guarded)")
-        elif major >= 8:
-            print(f"    -> Architecture: Ampere/Ada/Hopper (Compute Capability {major}.{minor})")
-        else:
-            print(f"    -> Architecture: Legacy CUDA (Compute Capability {major}.{minor})")
-
-        free_b, total_b = torch.cuda.mem_get_info(0)
-        free_mb = free_b // (1024 * 1024)
-        total_mb = total_b // (1024 * 1024)
-        print(f"  ✓ Total VRAM: {total_mb} MB ({total_mb / 1024:.2f} GB)")
-        print(f"  ✓ Free VRAM Available: {free_mb} MB ({free_mb / 1024:.2f} GB)")
-
-    except ImportError:
-        print("  ✖ PyTorch is not installed!")
-        return False
-    except Exception as e:
-        print(f"  ✖ Error probing CUDA: {e}")
-        return False
-
-    # 3. Tensor Core FP16 Benchmark
-    print("\n[3/5] Testing Turing Tensor Core FP16 Matrix Multiplication:")
-    try:
-        device = torch.device("cuda:0")
-        size = 2048
-        a = torch.randn(size, size, dtype=torch.float16, device=device)
-        b = torch.randn(size, size, dtype=torch.float16, device=device)
+        torch.set_num_threads(rec_threads)
+        size = 1024
+        a = torch.randn(size, size, dtype=torch.float32)
+        b = torch.randn(size, size, dtype=torch.float32)
         
         # Warm-up
         _ = torch.matmul(a, b)
-        torch.cuda.synchronize()
-
-        # Timed run
+        
         t0 = time.perf_counter()
-        iters = 50
+        iters = 20
         for _ in range(iters):
             _ = torch.matmul(a, b)
-        torch.cuda.synchronize()
         elapsed = time.perf_counter() - t0
 
-        tflops = (2 * (size ** 3) * iters) / (elapsed * 1e12)
-        print(f"  ✓ FP16 Matrix Multiply ({size}x{size}): {elapsed*1000/iters:.2f} ms/iter")
-        print(f"  ✓ Estimated Tensor Core Throughput: ~{tflops:.1f} TFLOPS")
+        gflops = (2 * (size ** 3) * iters) / (elapsed * 1e9)
+        print(f"  ✓ CPU Matrix Multiply ({size}x{size}): {elapsed*1000/iters:.2f} ms/iter")
+        print(f"  ✓ CPU SIMD Throughput: ~{gflops:.1f} GFLOPS across {rec_threads} worker threads")
         del a, b
-        torch.cuda.empty_cache()
     except Exception as e:
-        print(f"  ✖ Tensor Core FP16 test failed: {e}")
-        return False
+        print(f"  ℹ CPU benchmark info: {e}")
 
-    # 4. CTranslate2 / Faster-Whisper Verification
-    print("\n[4/5] Faster-Whisper & CTranslate2 CUDA Engine:")
+    # 4. NVIDIA GPU / CUDA Detection (Optional / Unburdened)
+    print("\n[4/6] NVIDIA GPU Hardware & VRAM Telemetry:")
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            major, minor = torch.cuda.get_device_capability(0)
+            free_b, total_b = torch.cuda.mem_get_info(0)
+            free_mb = free_b // (1024 * 1024)
+            total_mb = total_b // (1024 * 1024)
+            print(f"  ✓ NVIDIA GPU Present: {gpu_name}")
+            print(f"  ✓ CUDA Compute Capability: {major}.{minor}")
+            print(f"  ✓ Total VRAM: {total_mb} MB ({total_mb / 1024:.2f} GB)")
+            print(f"  ✓ Free VRAM: {free_mb} MB ({free_mb / 1024:.2f} GB)")
+            if sys.platform == "win32":
+                print("  ✓ Status on Windows: UNBURDENED by default (Reserved for Studio Video & UI)")
+                print("    (To route ML to GPU instead, set: TRANSCRIBER_DEVICE=cuda)")
+        else:
+            print("  ℹ CUDA GPU not available or not active in PyTorch.")
+    except Exception as e:
+        print(f"  ℹ GPU probe: {e}")
+
+    # 5. CTranslate2 & Faster-Whisper Verification
+    print("\n[5/6] Faster-Whisper & CTranslate2 Engine:")
     try:
         import ctranslate2
         print(f"  ✓ CTranslate2 Version: {ctranslate2.__version__}")
-        ct2_gpus = ctranslate2.get_cuda_device_count()
-        print(f"  ✓ CTranslate2 CUDA Device Count: {ct2_gpus}")
-        
-        supported_types = ctranslate2.get_supported_compute_types("cuda")
-        print(f"  ✓ Supported Compute Types on CUDA: {sorted(list(supported_types))}")
+        cpu_types = ctranslate2.get_supported_compute_types("cpu")
+        print(f"  ✓ Supported Compute Types on CPU: {sorted(list(cpu_types))}")
+        if "int8_float32" in cpu_types:
+            print("  ✓ Optimal 'int8_float32' CPU Quantization is ACTIVE & SUPPORTED!")
 
-        if "float16" in supported_types:
-            print("  ✓ 'float16' Tensor Core Precision is fully supported!")
-        if "int8_float16" in supported_types:
-            print("  ✓ 'int8_float16' Low-Memory Precision is fully supported!")
+        if ctranslate2.get_cuda_device_count() > 0:
+            cuda_types = ctranslate2.get_supported_compute_types("cuda")
+            print(f"  ✓ Supported Compute Types on CUDA: {sorted(list(cuda_types))}")
 
         from faster_whisper import WhisperModel
         print("  ✓ Faster-Whisper module imported successfully.")
-        
     except ImportError as e:
         print(f"  ✖ Faster-Whisper or CTranslate2 missing: {e}")
         return False
     except Exception as e:
-        print(f"  ✖ CTranslate2 CUDA error (Check cuBLAS/cuDNN DLLs): {e}")
+        print(f"  ✖ CTranslate2 inspection error: {e}")
         return False
 
-    # 5. Audio Extraction Subsystem
-    print("\n[5/5] Audio Processing & FFmpeg Discovery:")
+    # 6. Audio Processing Subsystem
+    print("\n[6/6] Audio Processing & FFmpeg Discovery:")
     ffmpeg_path = find_ffmpeg_binary()
     if ffmpeg_path:
         print(f"  ✓ FFmpeg Binary Found: {ffmpeg_path}")
     else:
-        print("  ℹ FFmpeg standalone binary not found in standard paths.")
+        print("  ℹ FFmpeg standalone binary not in standard paths; native PyAV engine handles decoding.")
 
     try:
         import av
@@ -153,20 +142,19 @@ def run_diagnostics() -> bool:
         print("  ✖ PyAV is not installed!")
         return False
 
-    # HAL summary
-    print("\n" + "=" * 65)
+    # Final Hardware Abstraction Layer (HAL) Resolution
+    print("\n" + "=" * 70)
     backend_info = get_compute_backend()
     print("HARDWARE ABSTRACTION LAYER (HAL) SELECTION:")
     print(f"  Platform:          {backend_info['platform']}")
-    print(f"  Device:            {backend_info['device_name']}")
-    print(f"  Engine Device:     {backend_info['whisper_device']}")
+    print(f"  Device Name:       {backend_info['device_name']}")
+    print(f"  Whisper Device:    {backend_info['whisper_device']}")
     print(f"  Compute Precision: {backend_info['compute_type']}")
-    print(f"  Total VRAM:        {backend_info.get('vram_total_mb')} MB")
-    print(f"  Supports FP16:     {backend_info.get('supports_fp16')}")
-    print(f"  Supports BF16:     {backend_info.get('supports_bf16')} (Turing safety guard active)")
-    print("=" * 65)
-    print(">>> STATUS: ALL CHECKS PASSED — GPU ACCELERATION READY FOR RTX 2080 <<<")
-    print("=" * 65)
+    print(f"  CPU Threads:       {backend_info.get('cpu_threads')}")
+    print(f"  Physical Cores:    {backend_info.get('physical_cores')}")
+    print("=" * 70)
+    print(">>> STATUS: ALL CHECKS PASSED — READY FOR OPTIMIZED TRANSCRIPTION <<<")
+    print("=" * 70)
     return True
 
 

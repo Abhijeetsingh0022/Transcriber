@@ -69,7 +69,10 @@ python verify_gpu.py
 if %errorlevel% equ 0 (
     echo.
     echo ===================================================================
-    echo  SUCCESS: Transcriber is configured and optimized for RTX 2080!
+    echo  SUCCESS: Transcriber is configured and optimized!
+    echo  - ML Inference: CPU (AVX2 / INT8 vector-optimized with core reservation)
+    echo  - NVIDIA GPU:   Unburdened for Studio Video, Muxing, and 60fps UI
+    echo  (To force GPU ML inference instead, set: TRANSCRIBER_DEVICE=cuda)
     echo  To launch the backend, double-click: run.bat
     echo ===================================================================
 ) else (

@@ -70,7 +70,10 @@ $verifyScript = Join-Path $PSScriptRoot "verify_gpu.py"
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "===================================================================" -ForegroundColor Green
-    Write-Host "  SUCCESS: Transcriber is configured and optimized for RTX 2080!    " -ForegroundColor Green
+    Write-Host "  SUCCESS: Transcriber is configured and optimized!                " -ForegroundColor Green
+    Write-Host "  - ML Engine: CPU (AVX2/INT8 Vector Optimized with Core Reserve)   " -ForegroundColor Green
+    Write-Host "  - NVIDIA GPU: Unburdened for Studio Video, Muxing & 60fps UI      " -ForegroundColor Green
+    Write-Host "  (To force GPU ML inference instead, set: TRANSCRIBER_DEVICE=cuda)" -ForegroundColor Cyan
     Write-Host "  To launch the backend, run: .\run.bat                            " -ForegroundColor Green
     Write-Host "===================================================================" -ForegroundColor Green
 } else {

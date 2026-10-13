@@ -66,6 +66,15 @@ class QueueWorker(threading.Thread):
 
     def run(self):
         """Worker loop polling SQLite for queued jobs."""
+        # On Windows, set worker process priority to BELOW_NORMAL to ensure buttery UI & no audio drops
+        import sys
+        if sys.platform == "win32":
+            try:
+                import psutil
+                psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            except Exception:
+                pass
+
         while not self.stop_event.is_set():
             job = self._fetch_next_job()
             if job:

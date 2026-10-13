@@ -2,7 +2,8 @@
 setlocal
 
 echo ===================================================================
-echo             STARTING TRANSCRIBER BACKEND (RTX 2080 CUDA)            
+echo   STARTING TRANSCRIBER BACKEND (WINDOWS CPU-WISE OPTIMIZED)         
+echo   ML Engine: CPU (AVX2/INT8) | GPU: Free for Studio Video & UI      
 echo ===================================================================
 
 if not exist ".venv\Scripts\activate.bat" (
