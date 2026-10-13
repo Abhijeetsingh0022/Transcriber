@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { CustomDropdown, DropdownOption } from "./CustomDropdown";
+import { CustomCheckbox } from "./CustomCheckbox";
 import { LANGUAGE_PRESETS } from "../muxConstants";
 
 const LABEL_PRESETS = ["English Dub", "Hindi Audio", "Original Dialogue", "Commentary", "Background Music"];
@@ -67,7 +68,13 @@ export function MuxAddTrackModal({
 
   const pickFile = (f: File) => {
     setFile(f);
-    if (!label) setLabel(f.name.replace(/\.[^.]+$/, ""));
+    if (!label) {
+      const clean = f.name
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_\-]+/g, " ")
+        .trim();
+      setLabel(clean.charAt(0).toUpperCase() + clean.slice(1));
+    }
   };
 
   const handleAdd = () => {
@@ -214,6 +221,15 @@ export function MuxAddTrackModal({
               searchable
               direction="auto"
             />
+          </div>
+
+          {/* Primary / Default Track Toggle */}
+          <div
+            onClick={() => setIsDefault(!isDefault)}
+            className="flex items-center gap-2 pt-1 cursor-pointer select-none"
+          >
+            <CustomCheckbox checked={isDefault} onChange={setIsDefault} size="sm" />
+            <span className="text-xs font-semibold text-slate-700">Set as Primary / Default Audio Track</span>
           </div>
 
           {/* Advanced */}

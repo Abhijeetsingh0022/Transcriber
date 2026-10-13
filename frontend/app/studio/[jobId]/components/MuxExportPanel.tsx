@@ -81,39 +81,75 @@ export function MuxExportPanel({
       <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-5">
 
         {/* Audio Layout Mode */}
-        <div className="space-y-2">
-          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
-            Audio Layout Mode
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { id: "tracks" as const, icon: Headphones, label: "Multi-Track", desc: "Separate switchable tracks (Hindi, English, etc.)" },
-              { id: "blend" as const, icon: Sliders, label: "Blended Mix", desc: "All tracks mixed into one soundtrack" },
-            ]).map(({ id, icon: Icon, label, desc }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onMuxModeChange(id)}
-                className={`p-3 rounded-lg border text-left transition-all active:scale-95 cursor-pointer ${
-                  muxMode === id
-                    ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500/20"
-                    : "border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <Icon className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-xs font-bold text-slate-900">{label}</span>
-                  </div>
-                  {muxMode === id && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  )}
-                </div>
-                <span className="block text-[10px] text-slate-500 leading-tight">{desc}</span>
-              </button>
-            ))}
+        {trackCount <= 1 ? (
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+              Audio Layout
+            </label>
+            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 text-left">
+              <div className="flex items-center gap-1.5 mb-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-xs font-bold text-slate-900">
+                  {trackCount === 1 ? "Standard Single Audio Stream" : "No Audio Track"}
+                </span>
+              </div>
+              <span className="block text-[10px] text-slate-500 leading-tight">
+                {trackCount === 1
+                  ? "Exports video with your selected audio stream. 100% compatible with all devices, browsers, and social platforms."
+                  : "Add an audio stem or click Import Original to mux audio onto your video."}
+              </span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                Audio Layout Mode
+              </label>
+              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                {trackCount} Stems Active
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                {
+                  id: "blend" as const,
+                  icon: Sliders,
+                  label: "Blended Mix",
+                  desc: "Mixes all tracks into 1 universal soundtrack. Plays everywhere (phones, YouTube, web).",
+                },
+                {
+                  id: "tracks" as const,
+                  icon: Headphones,
+                  label: "Multi-Track",
+                  desc: "Keeps language streams separate (switchable in VLC & media players).",
+                },
+              ]).map(({ id, icon: Icon, label, desc }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onMuxModeChange(id)}
+                  className={`p-3 rounded-lg border text-left transition-all active:scale-95 cursor-pointer ${
+                    muxMode === id
+                      ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500/20"
+                      : "border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Icon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-xs font-bold text-slate-900">{label}</span>
+                    </div>
+                    {muxMode === id && (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    )}
+                  </div>
+                  <span className="block text-[10px] text-slate-500 leading-tight">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Mute All */}
         <div
@@ -176,8 +212,10 @@ export function MuxExportPanel({
             <span className="font-mono text-[10px] text-slate-500">
               {muteAllAudio
                 ? "0 Audio (Silent)"
+                : trackCount <= 1
+                ? "1 Standard Track"
                 : muxMode === "blend"
-                ? "1 Blended Audio"
+                ? "1 Blended Audio Mix"
                 : `${trackCount} Audio Tracks`}
             </span>
           </div>
@@ -193,9 +231,11 @@ export function MuxExportPanel({
               <span className="font-semibold text-slate-800">
                 {muteAllAudio
                   ? "Muted (-an)"
+                  : trackCount <= 1
+                  ? "1 active audio stream"
                   : muxMode === "blend"
-                  ? `Blended (${trackCount} stems)`
-                  : `${trackCount} discrete stream(s)`}
+                  ? `Blended mix (${trackCount} stems combined)`
+                  : `${trackCount} discrete language stream(s)`}
               </span>
             </div>
           </div>
@@ -212,10 +252,14 @@ export function MuxExportPanel({
             <><Loader2 className="w-4 h-4 animate-spin" /><span>Multiplexing...</span></>
           ) : muteAllAudio ? (
             <><VolumeX className="w-4 h-4" /><span>Export Silent Video ({outputFormat.toUpperCase()})</span></>
+          ) : trackCount === 0 ? (
+            <><AlertCircle className="w-4 h-4" /><span>Add Audio Track to Export</span></>
+          ) : trackCount === 1 ? (
+            <><Layers className="w-4 h-4" /><span>Export Video with Audio ({outputFormat.toUpperCase()})</span></>
           ) : muxMode === "blend" ? (
             <><Sliders className="w-4 h-4" /><span>Export Blended Mix ({trackCount} Tracks)</span></>
           ) : (
-            <><Layers className="w-4 h-4" /><span>Export Multi-Track Video ({trackCount} Tracks)</span></>
+            <><Headphones className="w-4 h-4" /><span>Export Multi-Track Video ({trackCount} Tracks)</span></>
           )}
         </button>
 

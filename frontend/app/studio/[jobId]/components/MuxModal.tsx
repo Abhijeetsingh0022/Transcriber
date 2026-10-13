@@ -19,6 +19,7 @@ import {
   Music,
   Plus,
   Sliders,
+  Sparkles,
   Volume2,
   VolumeX,
   X,
@@ -103,14 +104,21 @@ export function MuxModal({ isOpen, onClose, jobId }: MuxModalProps) {
   const allMuted = tracks.length > 0 && tracks.every((t) => getMix(t.id).muted);
 
   const handleToggleMasterMute = () => {
+    const nextMuteAll = !allMuted;
     setMixUI((prev) => {
       const next = new Map(prev);
       tracks.forEach((t) => {
         const s = next.get(t.id) ?? { gain: 1, muted: false, soloed: false };
-        next.set(t.id, { ...s, muted: !allMuted });
+        next.set(t.id, { ...s, muted: nextMuteAll });
       });
       return next;
     });
+    setTracks((prev) => prev.map((t) => ({ ...t, is_muted: nextMuteAll })));
+    fetch(`${API_BASE}/jobs/${jobId}/mux/mute-all`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ muted: nextMuteAll }),
+    }).catch(() => {});
   };
 
   const updateGain = (trackId: string, gain: number) => {
@@ -127,21 +135,92 @@ export function MuxModal({ isOpen, onClose, jobId }: MuxModalProps) {
     }).catch(() => {});
   };
 
-  const toggleMute = (trackId: string) =>
+  const toggleMute = (trackId: string) => {
+    const curMuted = mixUI.get(trackId)?.muted ?? tracks.find((t) => t.id === trackId)?.is_muted ?? false;
+    const nextMuted = !curMuted;
     setMixUI((prev) => {
       const next = new Map(prev);
       const s = next.get(trackId) ?? { gain: 1, muted: false, soloed: false };
-      next.set(trackId, { ...s, muted: !s.muted });
+      next.set(trackId, { ...s, muted: nextMuted });
       return next;
     });
+    setTracks((prev) => prev.map((t) => (t.id === trackId ? { ...t, is_muted: nextMuted } : t)));
+    fetch(`${API_BASE}/jobs/${jobId}/mux/tracks/${trackId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_muted: nextMuted }),
+    }).catch(() => {});
+  };
 
-  const toggleSolo = (trackId: string) =>
+  const toggleSolo = (trackId: string) => {
+    const currentSolo = mixUI.get(trackId)?.soloed ?? false;
+    const nextSolo = !currentSolo;
     setMixUI((prev) => {
       const next = new Map(prev);
-      const s = next.get(trackId) ?? { gain: 1, muted: false, soloed: false };
-      next.set(trackId, { ...s, soloed: !s.soloed });
+      tracks.forEach((t) => {
+        const s = next.get(t.id) ?? { gain: 1, muted: false, soloed: false };
+        if (t.id === trackId) {
+          next.set(t.id, { ...s, soloed: nextSolo, muted: false });
+        } else {
+          next.set(t.id, { ...s, soloed: false, muted: nextSolo ? true : false });
+        }
+      });
       return next;
     });
+    setTracks((prev) =>
+      prev.map((t) => ({
+        ...t,
+        is_muted: t.id === trackId ? false : nextSolo,
+      }))
+    );
+    // Persist to backend so exported container matches solo state
+    tracks.forEach((t) => {
+      const shouldMute = t.id === trackId ? false : nextSolo;
+      fetch(`${API_BASE}/jobs/${jobId}/mux/tracks/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_muted: shouldMute }),
+      }).catch(() => {});
+    });
+  };
+
+  const handlePresetReplaceAudio = (newTrackId: string) => {
+    setMixUI((prev) => {
+      const next = new Map(prev);
+      tracks.forEach((t) => {
+        const s = next.get(t.id) ?? { gain: 1, muted: false, soloed: false };
+        next.set(t.id, { ...s, muted: t.id !== newTrackId, soloed: t.id === newTrackId });
+      });
+      return next;
+    });
+    setTracks((prev) => prev.map((t) => ({ ...t, is_muted: t.id !== newTrackId })));
+    setMuxMode("tracks");
+    tracks.forEach((t) => {
+      fetch(`${API_BASE}/jobs/${jobId}/mux/tracks/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_muted: t.id !== newTrackId, is_default: t.id === newTrackId }),
+      }).catch(() => {});
+    });
+  };
+
+  const handlePresetBlendAll = () => {
+    setMixUI((prev) => {
+      const next = new Map(prev);
+      tracks.forEach((t) => {
+        const s = next.get(t.id) ?? { gain: 1, muted: false, soloed: false };
+        next.set(t.id, { ...s, muted: false, soloed: false });
+      });
+      return next;
+    });
+    setTracks((prev) => prev.map((t) => ({ ...t, is_muted: false })));
+    setMuxMode("blend");
+    fetch(`${API_BASE}/jobs/${jobId}/mux/mute-all`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ muted: false }),
+    }).catch(() => {});
+  };
 
   // ── API: fetch tracks ──────────────────────────────────────────────────────
   const fetchTracks = useCallback(async () => {
@@ -149,7 +228,17 @@ export function MuxModal({ isOpen, onClose, jobId }: MuxModalProps) {
     try {
       const res = await fetch(`${API_BASE}/jobs/${jobId}/mux/tracks`);
       if (!res.ok) return;
-      const data: MuxTrack[] = await res.json();
+      let data: MuxTrack[] = await res.json();
+      if (data.length === 0) {
+        // Auto-import original project media audio if available so user is never stuck in a 0-track state
+        try {
+          const impRes = await fetch(`${API_BASE}/jobs/${jobId}/mux/tracks/import-original`, { method: "POST" });
+          if (impRes.ok) {
+            const freshRes = await fetch(`${API_BASE}/jobs/${jobId}/mux/tracks`);
+            if (freshRes.ok) data = await freshRes.json();
+          }
+        } catch { /* silent */ }
+      }
       setTracks(data);
       setMixUI((prev) => {
         const next = new Map(prev);
@@ -652,6 +741,61 @@ export function MuxModal({ isOpen, onClose, jobId }: MuxModalProps) {
 
             {/* Tracks list */}
             <div className="flex-1 min-h-0 p-4 sm:p-5 overflow-y-auto">
+              {tracks.length >= 2 && (
+                <div className="mb-3.5 p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200/80 flex items-center justify-between gap-2 flex-wrap text-xs">
+                  <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Quick Workflows:</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newTrack = tracks[tracks.length - 1];
+                        if (newTrack) handlePresetReplaceAudio(newTrack.id);
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-white hover:bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-[11px] font-semibold transition-all shadow-2xs cursor-pointer active:scale-95"
+                      title="Mutes original audio so only your new audio stem is active"
+                    >
+                      Replace Original Audio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePresetBlendAll}
+                      className="px-2.5 py-1 rounded-md bg-white hover:bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-[11px] font-semibold transition-all shadow-2xs cursor-pointer active:scale-95"
+                      title="Mixes all audio stems together into one unified soundtrack"
+                    >
+                      Blend All Stems
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMuxMode("tracks");
+                        tracks.forEach((t) => {
+                          fetch(`${API_BASE}/jobs/${jobId}/mux/tracks/${t.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ is_muted: false }),
+                          }).catch(() => {});
+                        });
+                        setTracks((p) => p.map((t) => ({ ...t, is_muted: false })));
+                        setMixUI((prev) => {
+                          const next = new Map(prev);
+                          tracks.forEach((t) => {
+                            const s = next.get(t.id) ?? { gain: 1, muted: false, soloed: false };
+                            next.set(t.id, { ...s, muted: false, soloed: false });
+                          });
+                          return next;
+                        });
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-white hover:bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-[11px] font-semibold transition-all shadow-2xs cursor-pointer active:scale-95"
+                      title="Keeps separate switchable language tracks in container"
+                    >
+                      Multi-Language Tracks
+                    </button>
+                  </div>
+                </div>
+              )}
               {isLoadingTracks && tracks.length === 0 ? (
                 <div className="h-44 flex flex-col items-center justify-center text-slate-400 gap-2">
                   <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />

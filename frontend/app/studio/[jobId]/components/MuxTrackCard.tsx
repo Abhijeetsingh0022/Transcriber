@@ -289,15 +289,19 @@ export const MuxTrackCard = memo(function MuxTrackCard({
           <button
             type="button"
             onClick={() => onToggleMute(track.id)}
+            title={isMuted ? "Unmute track" : "Mute track"}
+            aria-label={isMuted ? "Unmute track" : "Mute track"}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all active:scale-95 cursor-pointer border ${
-              isMuted ? "bg-rose-600 text-white border-rose-600" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+              isMuted ? "bg-rose-600 text-white border-rose-600 shadow-2xs" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
             }`}
           >M</button>
           <button
             type="button"
             onClick={() => onToggleSolo(track.id)}
+            title={isSoloed ? "Solo active (all others muted)" : "Solo this track"}
+            aria-label={isSoloed ? "Solo active" : "Solo this track"}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all active:scale-95 cursor-pointer border ${
-              isSoloed ? "bg-amber-500 text-white border-amber-500" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+              isSoloed ? "bg-amber-500 text-white border-amber-500 shadow-2xs" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
             }`}
           >S</button>
         </div>

@@ -399,16 +399,31 @@ def service_import_original_track(job_id: str) -> Dict[str, Any]:
     source_path: Optional[str] = None
     orig_path = job.get("filepath", "")
     if orig_path and os.path.isfile(orig_path):
-        source_path = orig_path
+        video_exts = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"}
+        ext = Path(orig_path).suffix.lower()
+        if ext in video_exts:
+            if _has_audio_stream(orig_path):
+                source_path = orig_path
+            else:
+                extracted = DATA_DIR / "media" / job_id / "audio_16k.wav"
+                if extracted.is_file() and extracted.stat().st_size > 0:
+                    source_path = str(extracted)
+        else:
+            source_path = orig_path
     else:
         extracted = DATA_DIR / "media" / job_id / "audio_16k.wav"
-        if extracted.is_file():
+        if extracted.is_file() and extracted.stat().st_size > 0:
             source_path = str(extracted)
 
     if not source_path:
         raise FileNotFoundError(f"No source audio file found on disk for job {job_id!r}.")
 
     existing_tracks = get_mux_tracks(job_id)
+    # Prevent duplicate imports
+    for t in existing_tracks:
+        if t.get("label") == "Original Audio" or t.get("filepath") == source_path:
+            return t
+
     is_default = len(existing_tracks) == 0
 
     track = insert_mux_track(

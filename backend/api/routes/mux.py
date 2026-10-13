@@ -177,6 +177,8 @@ def stream_mux_track_audio(job_id: str, track_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Track audio file not found.")
     mime_type, _ = mimetypes.guess_type(filepath)
     content_type = mime_type or "audio/mpeg"
+    if content_type.startswith("video/"):
+        content_type = "audio/mp4"
     return _send_file_range(
         file_path=filepath,
         request=request,

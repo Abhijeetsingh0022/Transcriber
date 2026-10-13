@@ -163,16 +163,32 @@ def probe_stream_info(filepath: str) -> dict:
             container = av.open(filepath)
             try:
                 audio = next((s for s in container.streams if s.type == "audio"), None)
-                if not audio:
-                    raise MuxError(f"No audio stream in file: {filepath}")
-                tb = float(audio.time_base) if audio.time_base else 1.0
-                res = {
-                    "codec_name": audio.codec_context.name,
-                    "duration": float(audio.duration or 0) * tb,
-                    "channels": audio.codec_context.channels,
-                    "sample_rate": audio.codec_context.sample_rate,
-                    "bit_rate": audio.bit_rate or 0,
-                }
+                if audio:
+                    tb = float(audio.time_base) if audio.time_base else 1.0
+                    duration = float(audio.duration or 0) * tb
+                    if duration <= 0 and container.duration:
+                        duration = float(container.duration) / av.time_base
+                    res = {
+                        "codec_name": audio.codec_context.name,
+                        "duration": duration,
+                        "channels": audio.codec_context.channels,
+                        "sample_rate": audio.codec_context.sample_rate,
+                        "bit_rate": audio.bit_rate or 0,
+                    }
+                else:
+                    # Video-only or silent container fallback
+                    video = next((s for s in container.streams if s.type == "video"), None)
+                    if video:
+                        dur = float(container.duration or 0) / av.time_base if container.duration else 0.0
+                        res = {
+                            "codec_name": video.codec_context.name if video.codec_context else "video",
+                            "duration": dur,
+                            "channels": 0,
+                            "sample_rate": 0,
+                            "bit_rate": container.bit_rate or 0,
+                        }
+                    else:
+                        raise MuxError(f"No audio or video stream in file: {filepath}")
             finally:
                 container.close()
         except MuxError:
@@ -346,7 +362,12 @@ def _build_ffmpeg_mux_cmd(
             # Per-track metadata & disposition
             cmd += [f"-metadata:s:a:{i}", f"language={track.language}"]
             cmd += [f"-metadata:s:a:{i}", f"title={track.label}"]
-            disposition_arg = "default" if track.is_default else ("0" if track.disposition == "none" else track.disposition)
+            if track.is_default and track.disposition not in ("none", "default"):
+                disposition_arg = f"default+{track.disposition}"
+            elif track.is_default:
+                disposition_arg = "default"
+            else:
+                disposition_arg = "0" if track.disposition == "none" else track.disposition
             cmd += [f"-disposition:a:{i}", disposition_arg]
 
     # Mode 2: Blended Audio Mix (Simultaneous multi-audio overlay)
@@ -359,7 +380,7 @@ def _build_ffmpeg_mux_cmd(
             mix_inputs.append(f"[{vlabel}]")
 
         filter_parts.append(
-            f"{''.join(mix_inputs)}amix=inputs={len(active_tracks)}:duration=longest:dropout_transition=2[aout]"
+            f"{''.join(mix_inputs)}amix=inputs={len(active_tracks)}:duration=longest:dropout_transition=2:normalize=0[aout]"
         )
         default_track = next((t for t in active_tracks if t.is_default), active_tracks[0] if active_tracks else None)
         blend_lang = default_track.language if default_track and default_track.language else "und"
