@@ -41,8 +41,21 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
           headers,
         });
 
-        if (res.status === 304 && cached) {
-          return cached.data as T;
+        if (res.status === 304) {
+          if (cached) {
+            return cached.data as T;
+          }
+          // Browser sent cached ETag but JS memory was clean: reload fresh payload
+          const freshRes = await fetch(`${API_BASE}${path}`, {
+            ...init,
+            cache: "reload",
+          });
+          if (freshRes.ok) {
+            const freshData = (await freshRes.json()) as T;
+            const newEtag = freshRes.headers.get("ETag");
+            if (newEtag) etagStore.set(path, { etag: newEtag, data: freshData });
+            return freshData;
+          }
         }
 
         if (!res.ok) {

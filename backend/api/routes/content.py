@@ -104,23 +104,20 @@ def preview_job_script(
 
 @router.get("/jobs/{job_id}/topics")
 def get_job_topics(job_id: str, request: Request):
-    """Extracts hierarchical Sections and Topics with timestamps from the transcript with HTTP caching."""
+    """Extracts hierarchical Sections and Topics with timestamps from the transcript."""
     if not is_safe_id(job_id):
         raise HTTPException(status_code=400, detail="Invalid job ID")
     transcript = get_transcript(job_id)
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcript not found")
 
-    etag = _transcript_etag(job_id, transcript, "topics")
-    cache_control = "public, max-age=3600, stale-while-revalidate=300"
-
-    if is_client_fresh(request, etag):
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_control})
-
     job = get_job(job_id)
     topics = extract_video_topics(transcript, job=job)
     payload = {"job_id": job_id, "total_topics": len(topics), "topics": topics}
-    return JSONResponse(content=payload, headers={"ETag": etag, "Cache-Control": cache_control})
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 
 @router.get("/jobs/{job_id}/waveform")

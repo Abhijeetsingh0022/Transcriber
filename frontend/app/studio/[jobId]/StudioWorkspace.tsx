@@ -60,6 +60,7 @@ function StudioContent() {
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [jobInfo, setJobInfo] = useState<JobInfo | null>(null);
   const [topics, setTopics] = useState<VideoTopic[]>([]);
+  const [isTopicsLoading, setIsTopicsLoading] = useState<boolean>(false);
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<string>("All changes saved");
 
@@ -200,12 +201,19 @@ function StudioContent() {
       } catch {}
 
       try {
-        const resTopics = await fetch(`${API_BASE}/jobs/${jobId}/topics`);
+        setIsTopicsLoading(true);
+        const resTopics = await fetch(`${API_BASE}/jobs/${jobId}/topics`, { cache: "no-cache" });
         if (resTopics.ok) {
           const topicData = await resTopics.json();
-          setTopics(topicData.topics || []);
+          if (Array.isArray(topicData.topics) && topicData.topics.length > 0) {
+            setTopics(topicData.topics);
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.warn("Initial topics load error:", err);
+      } finally {
+        setIsTopicsLoading(false);
+      }
 
       try {
         const resWave = await fetch(`${API_BASE}/jobs/${jobId}/waveform`);
@@ -240,6 +248,32 @@ function StudioContent() {
     return 0;
   }, [duration, jobInfo, transcript]);
 
+  // Dedicated topics loader for manual refresh or view-switch trigger
+  const loadTopics = useCallback(async () => {
+    if (!jobId) return;
+    setIsTopicsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/jobs/${jobId}/topics`, { cache: "no-cache" });
+      if (res.ok) {
+        const topicData = await res.json();
+        if (Array.isArray(topicData.topics) && topicData.topics.length > 0) {
+          setTopics(topicData.topics);
+        }
+      }
+    } catch (err) {
+      console.warn("Topics reload error:", err);
+    } finally {
+      setIsTopicsLoading(false);
+    }
+  }, [jobId]);
+
+  // Re-fetch topics whenever entering Topics view if empty
+  useEffect(() => {
+    if (viewMode === "topics" && topics.length === 0 && !isTopicsLoading) {
+      loadTopics();
+    }
+  }, [viewMode, topics.length, isTopicsLoading, loadTopics]);
+
   // Source media filename stem for downloads
   const mediaStem = useMemo(() => {
     return jobInfo?.filename ? jobInfo.filename.replace(/\.[^/.]+$/, "") : `transcript_${jobId.slice(0, 8)}`;
@@ -249,6 +283,55 @@ function StudioContent() {
   const dialogueTurns = useMemo<DialogueTurn[]>(() => {
     return buildDialogueTurns(transcript?.segments, transcript?.speakers, speakerNames);
   }, [transcript, speakerNames]);
+
+  // Derive robust fallback sections from transcript if topics API is empty
+  const effectiveTopics = useMemo<VideoTopic[]>(() => {
+    if (topics && topics.length > 0) return topics;
+    if (!transcript?.segments || transcript.segments.length === 0) return [];
+
+    const segs = transcript.segments;
+    const chunkSize = Math.max(4, Math.ceil(segs.length / 5));
+    const fallbackList: VideoTopic[] = [];
+
+    for (let i = 0; i < segs.length; i += chunkSize) {
+      const slice = segs.slice(i, i + chunkSize);
+      const startT = slice[0].start_time;
+      const endT = slice[slice.length - 1].end_time;
+      const dur = Math.max(1, endT - startT);
+      const secNo = Math.floor(i / chunkSize) + 1;
+      const totalSecs = Math.ceil(segs.length / chunkSize);
+
+      const turns = buildDialogueTurns(slice, transcript.speakers, speakerNames);
+      const formattedTurns = turns.map((t) => ({
+        speaker: t.displayName,
+        speaker_label: t.speakerLabel,
+        start_time: t.startTime,
+        end_time: t.endTime,
+        text: t.text,
+      }));
+
+      const title =
+        secNo === 1
+          ? "Introduction"
+          : secNo === totalSecs
+          ? "Conclusion & Summary"
+          : `Section ${secNo}`;
+
+      fallbackList.push({
+        section_no: secNo,
+        section: title,
+        topic: title,
+        start_time: Math.round(startT * 100) / 100,
+        end_time: Math.round(endT * 100) / 100,
+        timecode: `${formatTime(startT, 0)} - ${formatTime(endT, 0)}`,
+        duration_seconds: Math.round(dur * 100) / 100,
+        duration_label: `${Math.round(dur)} sec`,
+        speaker: formattedTurns.length === 1 ? formattedTurns[0].speaker : "Multiple",
+        turns: formattedTurns,
+      });
+    }
+    return fallbackList;
+  }, [topics, transcript, speakerNames]);
 
   // 3. Filtered turns based on active speaker filter & search
   const visibleTurns = useMemo(() => {
@@ -1326,12 +1409,15 @@ function StudioContent() {
                 ) : viewMode === "topics" ? (
               /* Topic-Wise Video Flow Table View */
               <TopicFlowView
-                topics={topics}
+                topics={effectiveTopics}
                 jobId={jobId}
                 jobInfo={jobInfo}
                 currentTime={currentTime}
                 onSeekTo={seekTo}
                 duration={effectiveDuration}
+                isLoading={isTopicsLoading}
+                onRefresh={loadTopics}
+                fallbackWordCount={transcript.word_count}
               />
             ) : viewMode === "reader" ? (
               /* Teleprompter Reader View */
@@ -1444,7 +1530,7 @@ function StudioContent() {
                       onReassignSpeaker={handleReassignSpeaker}
                       onReassignAddressee={handleReassignAddressee}
                       onAddMarker={handleAddMarker}
-                      topics={topics}
+                      topics={effectiveTopics}
                     />
                   );
                 })}
@@ -1469,7 +1555,7 @@ function StudioContent() {
                       speakers={transcript.speakers}
                       onSeekTo={seekTo}
                       onReassignSpeaker={handleReassignSpeaker}
-                      topics={topics}
+                      topics={effectiveTopics}
                     />
                   );
                 })}

@@ -18,6 +18,9 @@ interface TopicFlowViewProps {
   currentTime: number;
   onSeekTo: (time: number) => void;
   duration: number;
+  isLoading?: boolean;
+  onRefresh?: () => void;
+  fallbackWordCount?: number;
 }
 
 export function TopicFlowView({
@@ -27,6 +30,9 @@ export function TopicFlowView({
   currentTime,
   onSeekTo,
   duration,
+  isLoading = false,
+  onRefresh,
+  fallbackWordCount = 0,
 }: TopicFlowViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -71,12 +77,14 @@ export function TopicFlowView({
 
   // Compute rich audio and transcript metrics
   const totalWords = useMemo(() => {
-    return topics.reduce((acc, t) => {
+    const fromTopics = topics.reduce((acc, t) => {
       return acc + (t.turns || []).reduce((sAcc, turn) => {
         return sAcc + (turn.text || "").split(/\s+/).filter(Boolean).length;
       }, 0);
     }, 0);
-  }, [topics]);
+    if (fromTopics > 0) return fromTopics;
+    return fallbackWordCount || 0;
+  }, [topics, fallbackWordCount]);
 
   const distinctSpeakers = useMemo(() => {
     const list: string[] = [];
@@ -239,10 +247,34 @@ export function TopicFlowView({
               </tr>
             </thead>
             <tbody>
-              {filteredTopics.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-16 text-slate-500">
+                    <div className="flex flex-col items-center justify-center gap-2.5">
+                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-semibold text-slate-600">Extracting and aligning video flow sections...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredTopics.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-12 text-slate-400">
-                    No matching sections found for &ldquo;{searchQuery}&rdquo;
+                    {searchQuery ? (
+                      `No matching sections found for "${searchQuery}"`
+                    ) : (
+                      <div className="flex flex-col items-center gap-3">
+                        <span>No section flow detected yet.</span>
+                        {onRefresh && (
+                          <button
+                            type="button"
+                            onClick={onRefresh}
+                            className="px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-md transition shadow-2xs cursor-pointer"
+                          >
+                            Load Section Flow
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
