@@ -1,3 +1,2 @@
 @echo off
-cd /d "%~dp0backend"
-call run.bat
+call "%~dp0start_windows.bat"

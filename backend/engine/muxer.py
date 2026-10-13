@@ -126,11 +126,13 @@ def probe_stream_info(filepath: str) -> dict:
 
     res = None
     ffmpeg_bin = find_ffmpeg_binary()
-    ffprobe_bin = shutil.which("ffprobe")
+    ffprobe_bin = shutil.which("ffprobe") or shutil.which("ffprobe.exe")
     if not ffprobe_bin and ffmpeg_bin:
-        candidate = str(Path(ffmpeg_bin).parent / "ffprobe")
-        if os.path.isfile(candidate):
-            ffprobe_bin = candidate
+        parent_dir = Path(ffmpeg_bin).parent
+        if (parent_dir / "ffprobe.exe").is_file():
+            ffprobe_bin = str(parent_dir / "ffprobe.exe")
+        elif (parent_dir / "ffprobe").is_file():
+            ffprobe_bin = str(parent_dir / "ffprobe")
 
     if ffprobe_bin and os.path.isfile(ffprobe_bin):
         try:
@@ -459,6 +461,15 @@ def _mux_via_ffmpeg(
 
     last_notify_time = 0.0
     latest_speed = "1.0x"
+    stderr_chunks = []
+
+    def _drain_stderr():
+        if proc.stderr:
+            for l in proc.stderr:
+                stderr_chunks.append(l)
+
+    t_err = threading.Thread(target=_drain_stderr, daemon=True)
+    t_err.start()
 
     if proc.stdout:
         for raw_line in proc.stdout:
@@ -489,8 +500,9 @@ def _mux_via_ffmpeg(
                         f"Muxing position: {time_str} (speed: {latest_speed})"
                     )
 
-    stderr_text = proc.stderr.read() if proc.stderr else ""
     proc.wait(timeout=timeout)
+    t_err.join(timeout=2.0)
+    stderr_text = "".join(stderr_chunks)
 
     if proc.returncode != 0:
         stderr_tail = "\n".join(stderr_text.strip().splitlines()[-30:])

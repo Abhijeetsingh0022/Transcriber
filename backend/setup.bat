@@ -6,17 +6,24 @@ echo     TRANSCRIBER WINDOWS SETUP - NVIDIA RTX 2080 GPU OPTIMIZATION
 echo ===================================================================
 echo.
 
-:: 1. Check Python
+:: 1. Check Python or py launcher
+set PY_CMD=python
 where python >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] Python is not installed or not found in system PATH!
-    echo Please install Python 3.10, 3.11, or 3.12 from https://www.python.org/downloads/
-    echo Remember to check the box: "Add python.exe to PATH" during installation.
-    pause
-    exit /b 1
+    where py >nul 2>nul
+    if %errorlevel% equ 0 (
+        set PY_CMD=py -3
+        echo [INFO] Found Windows Python Launcher (py.exe)
+    ) else (
+        echo [ERROR] Python is not installed or not found in system PATH!
+        echo Please install Python 3.10, 3.11, or 3.12 from https://www.python.org/downloads/
+        echo Remember to check the box: "Add python.exe to PATH" during installation.
+        pause
+        exit /b 1
+    )
 )
 
-for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYTHON_VER=%%i
+for /f "tokens=*" %%i in ('%PY_CMD% --version 2^>^&1') do set PYTHON_VER=%%i
 echo [INFO] Detected: %PYTHON_VER%
 
 :: 2. Check NVIDIA GPU via nvidia-smi
@@ -31,7 +38,7 @@ if %errorlevel% equ 0 (
 :: 3. Setup Virtual Environment
 if not exist ".venv" (
     echo [INFO] Creating Python virtual environment in .venv...
-    python -m venv .venv
+    %PY_CMD% -m venv .venv
 ) else (
     echo [INFO] Found existing virtual environment in .venv.
 )

@@ -153,23 +153,19 @@ Transcriber/
 
 ---
 
-### 1. Backend Setup
+### 1. Launching on Windows (1-Click Master Launcher)
 
-#### 🪟 Windows PC (Wise CPU Optimization + Optional RTX 2080 GPU)
-Double-click `setup_windows.bat` in the project root (or inside `backend/setup.bat`). It automatically:
-1. Detects your hardware (Intel/AMD multi-core CPU and NVIDIA RTX 2080 GPU).
-2. **Wisely configures the ML engine for CPU execution by default**:
-   - Uses `int8_float32` AVX2 vector SIMD quantization (3x-4x faster than fp32, 70% lower RAM).
-   - Reserves 1-2 physical CPU cores and sets below-normal process priority to ensure the Windows desktop UI and video playback remain buttery smooth at 60fps with zero audio dropouts.
-   - Leaves your RTX 2080 GPU completely unburdened for studio video rendering, multi-track muxing, and desktop graphics.
-3. Installs PyTorch with CUDA 12.4 + cuBLAS/cuDNN runtime wheels so GPU acceleration is also available on demand.
-4. Runs `verify_gpu.py` to benchmark CPU SIMD throughput and GPU readiness.
-
-To start the backend, double-click:
-```cmd
-run_windows.bat
-```
-*(Optional: To force ML transcription to run on the GPU instead, set `set TRANSCRIBER_DEVICE=cuda` before running).*
+#### 🪟 Windows PC (Easiest Way — Just Double-Click `start.bat`)
+Simply double-click **[`start.bat`](file:///Users/abby/Desktop/Transcriber/start.bat)** (or **[`start_windows.bat`](file:///Users/abby/Desktop/Transcriber/start_windows.bat)**) in the project root folder. It handles everything automatically:
+1. **Auto-Checks Python & Node.js**: Detects `python.exe` or `py.exe` and `node`/`npm`.
+2. **Auto-Runs First-Time Setup**: If `.venv` or `node_modules` is missing, it installs all dependencies seamlessly.
+3. **Wise ML Execution on CPU by Default**:
+   - Uses `int8_float32` AVX2 vector SIMD quantization (~70% lower RAM, 3x–4x faster than fp32).
+   - Reserves 1–2 physical CPU cores and sets below-normal process priority to ensure 60fps UI and zero audio stutter.
+   - Leaves your RTX 2080 GPU unburdened for studio video rendering, multi-track muxing, and desktop graphics.
+   - *(Optional: To use GPU Tensor Cores instead, set `set TRANSCRIBER_DEVICE=cuda`).*
+4. **Launches Both Servers & Opens Browser**: Starts the Backend (port 8000) and Next.js Studio (port 3000), then automatically opens **`http://localhost:3000`** in your default browser!
+5. **Clean Shutdown**: Double-click **[`stop_windows.bat`](file:///Users/abby/Desktop/Transcriber/stop_windows.bat)** anytime to cleanly terminate background processes and free all ports.
 
 #### 🍎 macOS / 🐧 Linux Setup
 ```bash
