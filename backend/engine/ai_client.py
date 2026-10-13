@@ -372,8 +372,9 @@ def _execute_gemini_call(
 
     primary_model = pref_model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     models_to_try = [primary_model]
-    if primary_model != "gemini-3-flash-preview":
-        models_to_try.append("gemini-3-flash-preview")
+    for fallback in ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-flash-latest"]:
+        if fallback not in models_to_try:
+            models_to_try.append(fallback)
 
     base_config: Dict[str, Any] = {
         "responseMimeType": "application/json",

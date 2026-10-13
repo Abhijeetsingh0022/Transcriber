@@ -245,10 +245,19 @@ class QueueWorker(threading.Thread):
         broadcast_job_progress(job_id, 92.0, "Identifying speakers & roles...", status="diarizing")
 
         from engine.speaker_id import identify_speakers_for_segments
+        from services.settings_service import get_raw_gemini_key, get_raw_openrouter_key
 
         num_spk = job.get("num_speakers") or 3
+        g_key = get_raw_gemini_key()
+        o_key = get_raw_openrouter_key()
         try:
-            smart_id_res = identify_speakers_for_segments(segments, num_speakers=num_spk)
+            smart_id_res = identify_speakers_for_segments(
+                segments,
+                num_speakers=num_spk,
+                tier="auto",
+                gemini_api_key=g_key,
+                openrouter_api_key=o_key,
+            )
         except Exception as e:
             print(f"Warning: Speaker ID failed ({e}), falling back to default attribution.")
             smart_id_res = {

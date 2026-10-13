@@ -189,12 +189,23 @@ _RE_INTRO_NAME = re.compile(r"\b(?i:meet|welcome|joined by|this is)\s+([A-Z][a-z
 _RE_SELF_INTRO = re.compile(r"\b(?i:i am|i'm|my name is)\s+([A-Z][a-z]+)\b")
 _RE_START_VOCATIVE = re.compile(r"^([A-Z][a-z]+),\s+(?i:we|you|i|let|look|listen|what|how|why|can|could|please|now)\b")
 _RE_END_VOCATIVE = re.compile(r",\s*([A-Z][a-z]+)[?.!]")
-_RE_PHRASAL_VOCATIVE = re.compile(r"\b(?i:sure|understand|completely understand|worry|listen|hello|hi|hey|come on|tell me|thanks|thank you)\b\s*,?\s*([A-Z][a-z]+)\b")
+_RE_PHRASAL_VOCATIVE = re.compile(r"\b(?i:sure|understand|completely understand|worry|listen|hello|hi|hey|come on|tell me|thanks|thank you|good question|great question|yes|well said|well done|correct|exactly|nice)\b\s*,?\s*([A-Z][a-z]+)\b")
 _RE_IN_SCENE_DIALOGUE = re.compile(r"^(?:i\b|my\b|we\b|excuse me|hello\b|hi\b|hey\b|oh\b|wait\b|look\b|yay\b|wow\b)", re.IGNORECASE)
 _RE_TEACHER_MAAM = re.compile(r"\b(?:ma'?am|sir|teacher)\b", re.IGNORECASE)
 _RE_TEACHER_ROLE_ALL = re.compile(r"\b(?:ma'?am|sir|teacher|miss|madam|doctor|prof)\b", re.IGNORECASE)
 _RE_TAG_QUESTION = re.compile(r"(?:right|okay|correct)\?$", re.IGNORECASE)
 
+# Universal sentence & clause continuation patterns
+_TERMINAL_PUNCTUATION = {".", "!", "?", "।", "॥", "؟", "。", "！", "？"}
+_CONTINUATION_PUNCTUATION = {",", ";", ":", "-", "—", "–", "...", "…", "/"}
+_RE_COORDINATING_CONJUNCTION = re.compile(
+    r"^(?:and|or|but|nor|yet|so|which|who|whom|whose|where|when|that|because|as|aur|ya|tatha|evam|par|lekin|jo|jisse|jisme|ki)\b",
+    re.IGNORECASE,
+)
+_RE_DIRECT_DIALOGUE_STARTER = re.compile(
+    r"^(?:hello|hi|hey|excuse me|listen|look|wait|teacher|sir|ma'?am|madam|dr|doctor|prof|professor)\b",
+    re.IGNORECASE,
+)
 
 
 def normalize_speech_text(text: str) -> str:
@@ -220,6 +231,56 @@ def is_narrator_text(text: str) -> bool:
     return bool(_RE_NARRATIVE.search(t_lower))
 
 
+def is_sentence_continuation(
+    prev_seg: Optional[Dict[str, Any]],
+    curr_seg: Optional[Dict[str, Any]],
+    max_gap: float = 2.5,
+) -> bool:
+    """
+    Determines whether curr_seg is a direct syntactic/sentence continuation of prev_seg.
+    Speech transcribers (like Whisper) frequently split a single sentence across audio chunk
+    boundaries (e.g. at pauses or commas). A segment continuing an ongoing clause or sentence
+    MUST retain the same speaker and addressee as the preceding segment.
+    """
+    if not prev_seg or not curr_seg:
+        return False
+    prev_text = (prev_seg.get("text") or "").strip()
+    curr_text = (curr_seg.get("text") or "").strip()
+    if not prev_text or not curr_text:
+        return False
+
+    prev_end = float(prev_seg.get("end_time") or 0.0)
+    curr_start = float(curr_seg.get("start_time") or 0.0)
+    time_gap = max(0.0, curr_start - prev_end)
+    if time_gap > max_gap:
+        return False
+
+    # Explicit conversational addresses/dialogue starters signal a turn boundary
+    if _RE_DIRECT_DIALOGUE_STARTER.search(curr_text):
+        return False
+
+    prev_last_char = prev_text[-1]
+    ends_terminal = prev_last_char in _TERMINAL_PUNCTUATION
+    ends_continuation = prev_last_char in _CONTINUATION_PUNCTUATION or prev_text.endswith("...")
+    starts_lower = curr_text[0].islower()
+    starts_symbol = not curr_text[0].isalnum()
+    starts_conj = bool(_RE_COORDINATING_CONJUNCTION.search(curr_text))
+
+    # 1. Trailing continuation punctuation (comma, dash, ellipsis, semicolon, colon)
+    if ends_continuation:
+        return True
+
+    # 2. Previous ended without terminal punctuation (raw chunk break mid-clause)
+    if not ends_terminal:
+        if starts_lower or starts_conj or starts_symbol or time_gap <= 1.5:
+            return True
+
+    # 3. Current starts with lowercase or coordinating conjunction within close time window
+    if (starts_lower or starts_conj) and time_gap <= 1.2:
+        return True
+
+    return False
+
 
 import functools
 
@@ -233,7 +294,7 @@ def _get_compiled_vocative_rules(name: str):
     exclude_decl = re.compile(rf"\b{n_low}\s+(?:is|was|has|had|does|did|finds|goes|went|said|says|wants|wished|asked)\b", re.IGNORECASE)
     pos_start = re.compile(rf"^{n_esc},\s+(?:we|you|i|let|look|listen|what|how|why|can|could|please|now)\b", re.IGNORECASE)
     pos_end = re.compile(rf",\s*{n_esc}[?.!]$|\b{n_esc}\?$|\b(?:sure|understand)\s+{n_esc}[?.!,]", re.IGNORECASE)
-    pos_imperative = re.compile(rf"\b(?:sure|understand|completely understand|worry|listen|hello|hi|hey|tell me|thanks|thank you|welcome|come on|see)\s*,?\s*{n_esc}\b", re.IGNORECASE)
+    pos_imperative = re.compile(rf"\b(?:sure|understand|completely understand|worry|listen|hello|hi|hey|tell me|thanks|thank you|welcome|come on|see|good question|great question|yes|well said|well done)\s*,?\s*{n_esc}\b", re.IGNORECASE)
     pos_parenthetical = re.compile(rf",\s*{n_esc},\s*", re.IGNORECASE)
     return exclude_framing, exclude_decl, pos_start, pos_end, pos_imperative, pos_parenthetical
 
@@ -410,6 +471,11 @@ def identify_speakers_for_segments(
             is_intro = bool(_RE_INTRO.search(t_low))
             is_scene = bool(_RE_SCENE.search(t_low))
 
+            # Syntactic continuation from an earlier narrator segment must stay narrator
+            if i > 0 and (i - 1 in narrator_indices) and is_sentence_continuation(segments[i - 1], segments[i]):
+                narrator_indices.add(i)
+                continue
+
             # Universal in-scene dialogue marker: direct first-person utterance or conversational greeting
             is_in_scene = (
                 _RE_IN_SCENE_DIALOGUE.search(t_low)
@@ -584,7 +650,23 @@ def identify_speakers_for_segments(
             break
 
     for i, seg in enumerate(segments):
-        # A. Narrator intro, outro, & synthesis voiceover
+        # A. Sentence continuation takes precedence over standalone keyword triggers
+        if i > 0 and is_sentence_continuation(segments[i - 1], seg):
+            assignments[i] = assignments[i - 1]
+            addressees[i] = addressees[i - 1]
+            intents[i] = intents[i - 1]
+            if assignments[i] in [speaker_0_label, speaker_1_label]:
+                current_dialogue_speaker = assignments[i]
+            continue
+
+        # B. Opening narrator pre-dialogue guard: before first in-scene interaction and addressing audience
+        if i < first_teacher_interaction and has_narrator and (i - 1 in narrator_indices or assignments.get(i - 1) == narrator_label):
+            assignments[i] = narrator_label
+            addressees[i] = "Audience"
+            intents[i] = "narration"
+            continue
+
+        # C. Narrator intro, outro, & synthesis voiceover
         if i in narrator_indices and has_narrator:
             assignments[i] = narrator_label
             addressees[i] = "Audience"
@@ -728,7 +810,21 @@ def smart_identify_and_save_job(
 
         segments = [dict(r) for r in rows]
 
-        # 2. Run universal identification
+        # 2. Resolve active API keys if not explicitly passed
+        if not gemini_api_key:
+            try:
+                from services.settings_service import get_raw_gemini_key
+                gemini_api_key = get_raw_gemini_key()
+            except Exception:
+                pass
+        if not openrouter_api_key:
+            try:
+                from services.settings_service import get_raw_openrouter_key
+                openrouter_api_key = get_raw_openrouter_key()
+            except Exception:
+                pass
+
+        # 3. Run universal identification
         res = identify_speakers_for_segments(
             segments,
             num_speakers=3,

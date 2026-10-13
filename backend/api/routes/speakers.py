@@ -98,10 +98,11 @@ def trigger_smart_speaker_identification(
     if not get_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     from engine.speaker_id import smart_identify_and_save_job
+    from services.settings_service import get_raw_gemini_key, get_raw_openrouter_key
 
     tier = payload.tier if payload else "auto"
-    api_key = payload.gemini_api_key if payload else None
-    openrouter_key = payload.openrouter_api_key if payload else None
+    api_key = (payload.gemini_api_key if payload and payload.gemini_api_key else None) or get_raw_gemini_key()
+    openrouter_key = (payload.openrouter_api_key if payload and payload.openrouter_api_key else None) or get_raw_openrouter_key()
 
     res = smart_identify_and_save_job(
         str(DB_PATH),

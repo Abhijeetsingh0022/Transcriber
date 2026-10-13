@@ -79,13 +79,16 @@ def _build_discourse_prompt(segments: List[Dict[str, Any]]) -> str:
     return (
         "You are an expert dialogue and discourse analyst for video recordings across all languages.\n"
         "Analyze the transcript lines below and determine:\n"
-        "1. All characters/participants in the recording, extracting their real names and conversational roles from dialogue vocatives, honorifics, and cues.\n"
+        "1. All speaking characters/participants in the recording, extracting their real names and conversational roles from dialogue vocatives, honorifics, and cues.\n"
         "   - Include 'Narrator' if there is opening channel intro, presentation, or closing voiceover directed at the audience.\n"
         "   - Identify real names, vocatives, and honorific roles dynamically from dialogue cues across any language (e.g. Teacher, Student, Host, Doctor, Sir, Ma'am).\n"
         "   - Use clean, standard display names for 'characters.name' so UI badges render cleanly.\n"
+        "   - Do NOT include 'Audience' or 'Viewers' as a character in 'characters' (use 'Audience' only for 'turns.addressed_to').\n"
         "2. For every segment index, determine exactly who is speaking ('speaker'), who they are addressing ('addressed_to'), and their conversational intent ('intent').\n"
         "Universal Rules:\n"
-        "- If an intro, explanation to viewers, or outro is addressing the audience/viewers broadly, speaker is 'Narrator' (or the speaking host) and addressed_to is 'Audience' with intent 'narration'.\n"
+        "- CRITICAL SENTENCE CONTINUATION RULE: Speech transcribers split sentences across segment boundaries (e.g. mid-clause, after a comma, or conjunction). If segment [i] continues an unfinished sentence or clause from segment [i-1], it MUST have the EXACT SAME speaker and addressed_to as segment [i-1]. A single sentence NEVER changes speakers midway through.\n"
+        "- CRITICAL NARRATOR INTRO RULE: The opening channel intro and topic announcement (e.g. 'Hello students, welcome to [Channel]. Today we will learn about [Topic] and how [Concepts] work.') belongs 100% to 'Narrator' addressed to 'Audience' with intent 'narration'. Do NOT attribute introductory explanations to 'Teacher' or in-scene characters before the interactive scene dialogue begins.\n"
+        "- In-scene characters (e.g. Teacher, Student) only speak once the interactive dialogue begins in the scene (e.g. when a student asks 'Teacher, ...' or characters converse).\n"
         "- When Person A addresses Person B by name or honorific, speaker is Person A and addressed_to is Person B.\n"
         "- When someone asks a question or expresses confusion, intent is 'inquiry'.\n"
         "- When someone teaches, explains a concept, or provides guidance, intent is 'explanation'.\n"
@@ -107,8 +110,12 @@ def _parse_ai_character_response(
     segments: List[Dict[str, Any]],
     tier_label: str
 ) -> Dict[str, Any]:
-    """Parses standardized JSON response from AI provider into engine speaker roster."""
-    char_list = result.get("characters", [])
+    """Parses standardized JSON response from AI provider into engine speaker roster with syntactic bonding."""
+    from engine.speaker_id import is_sentence_continuation, normalize_speech_text, _RE_TEACHER_MAAM, _RE_OUTRO
+
+    raw_char_list = result.get("characters", [])
+    # Filter out listener-only entities like 'Audience' from speaking roster
+    char_list = [c for c in raw_char_list if c.get("name", "").strip().lower() not in ["audience", "viewers", "listener"]]
     speakers = []
     name_to_label = {}
     for s_idx, c in enumerate(char_list):
@@ -135,9 +142,9 @@ def _parse_ai_character_response(
             "color_hex": c_color,
         })
 
-    assignments = {}
-    addressees = {}
-    intents = {}
+    assignments: Dict[int, str] = {}
+    addressees: Dict[int, str] = {}
+    intents: Dict[int, str] = {}
     for turn in result.get("turns", []):
         idx = turn.get("segment_index")
         if idx is None:
@@ -153,7 +160,7 @@ def _parse_ai_character_response(
                     matched_lbl = v
                     break
         if not matched_lbl:
-            matched_lbl = "SPEAKER_00"
+            matched_lbl = "SPEAKER_00" if speakers else "SPEAKER_00"
 
         assignments[idx] = matched_lbl
         addressees[idx] = addr
@@ -164,6 +171,80 @@ def _parse_ai_character_response(
             assignments[i] = assignments.get(i - 1, "SPEAKER_00")
             addressees[i] = addressees.get(i - 1, "Audience")
             intents[i] = "statement"
+
+    # 1. Syntactic sentence continuation bonding: mid-sentence splits MUST inherit speaker
+    for i in range(1, len(segments)):
+        if is_sentence_continuation(segments[i - 1], segments[i]):
+            assignments[i] = assignments[i - 1]
+            addressees[i] = addressees[i - 1]
+            if intents.get(i - 1) == "narration":
+                intents[i] = "narration"
+
+    # 2. Opening narrative intro protection: Ensure opening presentation is attributed to Narrator
+    if segments:
+        first_seg_text = normalize_speech_text(segments[0].get("text", "")).lower()
+        has_intro_greeting = any(p in first_seg_text for p in [
+            "welcome to", "welcome back", "hello students", "hello everyone",
+            "today we'll learn", "today we will learn", "in this video", "in today's"
+        ])
+
+        narrator_spk = next((s for s in speakers if s["display_name"].lower() == "narrator"), None)
+        if not narrator_spk and has_intro_greeting:
+            narrator_lbl = f"SPEAKER_{len(speakers):02d}"
+            narrator_spk = {
+                "speaker_label": narrator_lbl,
+                "display_name": "Narrator",
+                "role": "Narrator",
+                "color_hex": ROLE_COLORS["narrator"],
+            }
+            speakers.append(narrator_spk)
+            name_to_label["narrator"] = narrator_lbl
+
+        if has_intro_greeting and narrator_spk:
+            narrator_lbl = narrator_spk["speaker_label"]
+            assignments[0] = narrator_lbl
+            addressees[0] = "Audience"
+            intents[0] = "narration"
+
+            # Continue Narrator through introductory monologue before first in-scene dialogue turn
+            for i in range(1, min(10, len(segments))):
+                curr_txt = normalize_speech_text(segments[i].get("text", "")).lower()
+                if is_sentence_continuation(segments[i - 1], segments[i]):
+                    assignments[i] = narrator_lbl
+                    addressees[i] = "Audience"
+                    intents[i] = "narration"
+                    continue
+                # Stop when interactive in-scene dialogue begins (e.g. "Teacher, how can I...")
+                if _RE_TEACHER_MAAM.search(curr_txt) or curr_txt.strip().endswith("?"):
+                    break
+                # If addressed to Audience and preceded by Narrator, keep as Narrator
+                if addressees.get(i) in ["Audience", "viewers", "students", None, ""]:
+                    assignments[i] = narrator_lbl
+                    addressees[i] = "Audience"
+                    intents[i] = "narration"
+
+    # 3. Trailing outro protection
+    if len(segments) > 2:
+        last_idx = len(segments) - 1
+        last_txt = normalize_speech_text(segments[last_idx].get("text", "")).lower()
+        if _RE_OUTRO.search(last_txt):
+            narrator_spk = next((s for s in speakers if s["display_name"].lower() == "narrator"), None)
+            if not narrator_spk:
+                narrator_lbl = f"SPEAKER_{len(speakers):02d}"
+                narrator_spk = {
+                    "speaker_label": narrator_lbl,
+                    "display_name": "Narrator",
+                    "role": "Narrator",
+                    "color_hex": ROLE_COLORS["narrator"],
+                }
+                speakers.append(narrator_spk)
+            assignments[last_idx] = narrator_spk["speaker_label"]
+            addressees[last_idx] = "Audience"
+            intents[last_idx] = "narration"
+
+    # 4. Prune unused speakers from the roster
+    used_labels = set(assignments.values())
+    speakers = [s for s in speakers if s["speaker_label"] in used_labels]
 
     return {
         "success": True,
