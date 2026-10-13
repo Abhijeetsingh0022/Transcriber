@@ -279,6 +279,14 @@ class QueueWorker(threading.Thread):
         update_job_progress(job_id, 100.0, "Transcription completed successfully.")
         broadcast_job_completed(job_id, round(duration, 2))
 
+        # Reclaim VRAM after job completion
+        try:
+            import torch
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def stop(self):
         """Stops the worker loop cleanly."""
         self.stop_event.set()

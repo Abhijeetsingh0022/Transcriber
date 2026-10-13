@@ -18,17 +18,17 @@ import numpy as np
 
 @functools.lru_cache(maxsize=1)
 def find_ffmpeg_binary() -> Optional[str]:
-    """Finds ffmpeg executable in PATH or standard system locations (cached)."""
+    """Finds ffmpeg executable in PATH or standard system locations across Windows, macOS, and Linux (cached)."""
     # 0. Explicit env var
     env_bin = os.environ.get("FFMPEG_BINARY") or os.environ.get("FFMPEG_PATH")
-    if env_bin and os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
+    if env_bin and os.path.isfile(env_bin):
         return env_bin
 
     # 1. System PATH
-    binary = shutil.which("ffmpeg")
+    binary = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
     if binary:
         return binary
-    
+
     # 2. Standard cross-platform OS binary paths
     candidates = [
         "/opt/homebrew/bin/ffmpeg",  # macOS Homebrew (Apple Silicon)
@@ -36,6 +36,32 @@ def find_ffmpeg_binary() -> Optional[str]:
         "/usr/bin/ffmpeg",          # Linux Debian/Ubuntu/RHEL
         "/bin/ffmpeg",
     ]
+
+    # 2b. Standard Windows locations
+    import sys
+    if sys.platform == "win32" or os.name == "nt":
+        prog_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+        prog_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
+        prog_data = os.environ.get("ProgramData", "C:\\ProgramData")
+        user_prof = os.environ.get("USERPROFILE", "")
+        local_app = os.environ.get("LOCALAPPDATA", "")
+
+        candidates.extend([
+            "C:\\ffmpeg\\bin\\ffmpeg.exe",
+            "C:\\ffmpeg\\ffmpeg.exe",
+            os.path.join(prog_files, "ffmpeg", "bin", "ffmpeg.exe"),
+            os.path.join(prog_files_x86, "ffmpeg", "bin", "ffmpeg.exe"),
+            os.path.join(prog_data, "chocolatey", "bin", "ffmpeg.exe"),
+            os.path.join(user_prof, "scoop", "apps", "ffmpeg", "current", "bin", "ffmpeg.exe"),
+        ])
+        if local_app:
+            wg = Path(local_app) / "Microsoft" / "WinGet" / "Packages"
+            if wg.is_dir():
+                try:
+                    for f in wg.glob("**/ffmpeg.exe"):
+                        candidates.append(str(f))
+                except Exception:
+                    pass
 
     # 3. User extension locations (Antigravity IDE, VS Code, Trae, Kiro)
     home = Path.home()
@@ -46,13 +72,14 @@ def find_ffmpeg_binary() -> Optional[str]:
         home / ".kiro" / "extensions",
     ]:
         if ext_root.is_dir():
-            for p in ext_root.glob("kilocode.kilo-code-*/bin/ffmpeg"):
-                if p.is_file() and os.access(str(p), os.X_OK):
+            for p in ext_root.glob("kilocode.kilo-code-*/bin/ffmpeg*"):
+                if p.is_file():
                     candidates.append(str(p))
 
     for path in candidates:
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
+        if os.path.isfile(path):
+            if sys.platform == "win32" or os.access(path, os.X_OK):
+                return path
             
     return None
 

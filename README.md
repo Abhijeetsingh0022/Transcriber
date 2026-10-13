@@ -155,6 +155,20 @@ Transcriber/
 
 ### 1. Backend Setup
 
+#### 🪟 Windows PC with NVIDIA RTX 2080 GPU (1-Click Setup)
+Double-click `setup_windows.bat` in the project root (or inside `backend/setup.bat`). It automatically:
+1. Detects your NVIDIA RTX 2080 (Turing TU104, 8GB VRAM GDDR6).
+2. Creates the Python virtual environment (`.venv`).
+3. Installs PyTorch with CUDA 12.4 acceleration (`--index-url https://download.pytorch.org/whl/cu124`).
+4. Installs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` wheels for CTranslate2.
+5. Runs `verify_gpu.py` to benchmark Tensor Core FP16 throughput.
+
+To start the backend with GPU acceleration, double-click:
+```cmd
+run_windows.bat
+```
+
+#### 🍎 macOS / 🐧 Linux Setup
 ```bash
 cd backend
 

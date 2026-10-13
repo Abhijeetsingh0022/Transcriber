@@ -125,13 +125,30 @@ class TranscriberEngine:
                 models_dir = str(Path.home() / ".cache" / "transcriber" / "models")
 
             # Initialize Faster-Whisper with detected hardware backend
-            model = WhisperModel(
-                model_size_or_path=model_name,
-                device=backend["whisper_device"],
-                compute_type=backend["compute_type"],
-                cpu_threads=cpu_threads,
-                download_root=models_dir,
-            )
+            # With graceful fallback to CPU if CUDA initialization or driver fails
+            device_to_use = backend["whisper_device"]
+            compute_to_use = backend["compute_type"]
+
+            try:
+                model = WhisperModel(
+                    model_size_or_path=model_name,
+                    device=device_to_use,
+                    compute_type=compute_to_use,
+                    cpu_threads=cpu_threads,
+                    download_root=models_dir,
+                )
+            except Exception as e:
+                if device_to_use == "cuda":
+                    print(f"Warning: Faster-Whisper CUDA initialization failed ({e}). Falling back to CPU.")
+                    model = WhisperModel(
+                        model_size_or_path=model_name,
+                        device="cpu",
+                        compute_type="int8_float32",
+                        cpu_threads=cpu_threads,
+                        download_root=models_dir,
+                    )
+                else:
+                    raise e
 
             cls._loaded_model = model
             cls._loaded_tier = tier_key
@@ -293,6 +310,14 @@ class TranscriberEngine:
             progress_callback(90.0, "Transcription inference complete.")
 
         total_words = len(full_text.split()) if full_text else 0
+
+        # Release cached CUDA memory blocks to prevent VRAM fragmentation on 8GB GPUs
+        try:
+            import torch
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
         return {
             "full_text": full_text,

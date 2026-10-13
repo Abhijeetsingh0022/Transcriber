@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 # Load local environment variables from .env
 load_dotenv()
 
+# Pre-register Windows CUDA DLL search paths before loading CTranslate2/PyTorch
+from engine.hardware import setup_windows_cuda_dll_paths
+setup_windows_cuda_dll_paths()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
